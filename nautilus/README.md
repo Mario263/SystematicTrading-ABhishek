@@ -24,11 +24,12 @@ runs the low-level `BacktestEngine`, then prints the four metrics from the posit
 
 | Metric | Value |
 |---|---|
-| Total return | -15.34% |
-| Sharpe ratio | -0.1413 |
-| Max drawdown | -39.73% |
+| Total return | -42.46% |
+| Sharpe ratio | -0.49 |
+| Max drawdown | -50.24% |
 | Number of trades | 3895 |
 
-Parameters: EUR/USD H1, 2010-06-01..2026-06-12, init cash 10,000 USD, size 10,000 units (0.1 lot),
-long-only/flat, NETTING/MARGIN venue. Metric conventions and why they differ from vectorbt are in
-`results.md` and the root README.
+Parameters: EUR/USD H1, 2010-06-01..2026-06-12, init cash 10,000 USD, long-only/flat, NETTING/MARGIN
+venue (leverage 1). Sizing: deploy ~all available cash long each trade (same model as vectorbt); a
+custom fee model charges 0.00005 of notional per fill (matches vectorbt). These align the run with
+vectorbt — see `results.md` and the root README.

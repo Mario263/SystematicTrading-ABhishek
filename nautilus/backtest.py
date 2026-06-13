@@ -2,37 +2,41 @@
 Nautilus Trader MACD-crossover backtest — EUR/USD H1.
 
 MACD is hand-rolled in the Strategy's on_bar state (EMA/MACD/signal), NOT Nautilus's built-in
-MACD indicator. Same EMA seeding as the vectorbt version (seed = SMA of the first N values) so the
-two are directly comparable.
+MACD indicator. Same EMA seeding as the vectorbt version (seed = SMA of the first N values).
+
+A custom fee model charges the same per-side cost as vectorbt (FEES fraction of notional per fill)
+so the Nautilus result is comparable to vectorbt and MT5 (which both bear transaction costs).
 
 Strategy: go LONG on MACD crossing above signal; go FLAT on crossing below.
 
 Run:  python backtest.py   (needs nautilus_trader on Python 3.12 — see README.md)
 """
 from decimal import Decimal
-from math import isnan, nan, sqrt
+from math import isnan, nan
 from pathlib import Path
 
 import pandas as pd
 
-from nautilus_trader.backtest.engine import BacktestEngine, BacktestEngineConfig #type: ignore
-from nautilus_trader.config import StrategyConfig#type: ignore
-from nautilus_trader.model.currencies import EUR, USD #type: ignore
-from nautilus_trader.model.data import Bar, BarSpecification, BarType#type: ignore
-from nautilus_trader.model.enums import (#type: ignore
+from nautilus_trader.backtest.engine import BacktestEngine, BacktestEngineConfig
+from nautilus_trader.backtest.models import FeeModel
+from nautilus_trader.config import StrategyConfig
+from nautilus_trader.model.currencies import EUR, USD
+from nautilus_trader.model.data import Bar, BarSpecification, BarType
+from nautilus_trader.model.enums import (
     AccountType, AggregationSource, BarAggregation, OmsType, OrderSide, PriceType,
 )
-from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue#type: ignore
-from nautilus_trader.model.instruments import CurrencyPair#type: ignore
-from nautilus_trader.model.objects import Money, Price, Quantity#type: ignore
-from nautilus_trader.persistence.wranglers import BarDataWrangler#type: ignore
-from nautilus_trader.trading.strategy import Strategy#type: ignore
+from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
+from nautilus_trader.model.instruments import CurrencyPair
+from nautilus_trader.model.objects import Money, Price, Quantity
+from nautilus_trader.persistence.wranglers import BarDataWrangler
+from nautilus_trader.trading.strategy import Strategy
 
-# ---- shared parameters 
+# ---- shared parameters (see .claude/memory/decisions.md) ----
 DATA = Path(__file__).resolve().parents[1] / "data" / "EURUSD60.csv"
 FAST, SLOW, SIGNAL = 12, 26, 9
 INIT_CASH = 10_000
 TRADE_SIZE = 10_000          # 0.1 lot, fixed, long-only (D6)
+FEES = 0.00005               # ~0.5 pip per side, fraction of notional — matches vectorbt (D7)
 VENUE = Venue("SIM")
 INSTRUMENT_ID = "EUR/USD.SIM"
 BAR_TYPE = "EUR/USD.SIM-1-HOUR-MID-EXTERNAL"
@@ -43,7 +47,19 @@ def ema_step(price: float, prev: float, period: int) -> float:
     return price * k + prev * (1.0 - k)
 
 
-class MACDConfig(StrategyConfig, frozen=True): #type: ignore
+class NotionalFractionFeeModel(FeeModel):
+    """Charge `fraction` of notional (fill_px * fill_qty) per fill, like vectorbt's fees."""
+
+    def __init__(self, fraction: float):
+        super().__init__()
+        self._fraction = max(fraction, 0.0)
+
+    def get_commission(self, order, fill_qty, fill_px, instrument) -> Money:
+        notional = float(fill_px) * float(fill_qty)
+        return Money(notional * self._fraction, USD)
+
+
+class MACDConfig(StrategyConfig, frozen=True):
     instrument_id: str
     bar_type: str
     trade_size: int = TRADE_SIZE
@@ -64,12 +80,28 @@ class MACDStrategy(Strategy):
         self._signal = nan
         self._prev_macd = nan
         self._prev_signal = nan
+        self._pending = None  # "BUY" / "CLOSE" signal from the previous bar, acted on this bar
 
     def on_start(self):
         self.subscribe_bars(self._bar_type)
 
     def on_bar(self, bar: Bar):
         close = float(bar.close)
+
+        # Execute the PREVIOUS bar's signal now — fills at this bar's close, i.e. the bar AFTER the
+        # cross was confirmed. This is next-bar execution, matching vectorbt's shifted signals and the
+        # MT5 EA (which reads the just-closed bar). No look-ahead.
+        if self._pending == "BUY" and self.portfolio.is_flat(self._instrument_id):
+            qty = self._affordable_qty(close)
+            if int(qty) > 0:
+                self.submit_order(self.order_factory.market(
+                    instrument_id=self._instrument_id,
+                    order_side=OrderSide.BUY,
+                    quantity=qty,
+                ))
+        elif self._pending == "CLOSE" and not self.portfolio.is_flat(self._instrument_id):
+            self.close_all_positions(self._instrument_id)
+        self._pending = None
 
         # fast EMA (seed = SMA of first FAST closes)
         if isnan(self._ema_fast):
@@ -106,17 +138,21 @@ class MACDStrategy(Strategy):
         if not isnan(self._prev_macd) and not isnan(self._prev_signal):
             cross_up = self._prev_macd <= self._prev_signal and macd_line > self._signal
             cross_down = self._prev_macd >= self._prev_signal and macd_line < self._signal
-            if cross_up and self.portfolio.is_flat(self._instrument_id):
-                self.submit_order(self.order_factory.market(
-                    instrument_id=self._instrument_id,
-                    order_side=OrderSide.BUY,
-                    quantity=self._qty,
-                ))
-            elif cross_down and not self.portfolio.is_flat(self._instrument_id):
-                self.close_all_positions(self._instrument_id)
+            # Record the signal; it is acted on at the NEXT bar (see top of on_bar).
+            if cross_up:
+                self._pending = "BUY"
+            elif cross_down:
+                self._pending = "CLOSE"
 
         self._prev_macd = macd_line
         self._prev_signal = self._signal
+
+    def _affordable_qty(self, price: float) -> Quantity:
+        # Deploy ~all available cash long (no leverage) — same model as vectorbt's from_signals,
+        # so the two converge on identical data. 1% buffer leaves room for the fee.
+        account = self.cache.account_for_venue(self._instrument_id.venue)
+        free = float(account.balance_free(USD))
+        return Quantity.from_int(max(int(free * 0.99 / price), 0))
 
     def on_stop(self):
         self.close_all_positions(self._instrument_id)
@@ -144,12 +180,21 @@ def load_bars(instrument, bar_type) -> list[Bar]:
     return wrangler.process(df)
 
 
+def to_float(x) -> float:
+    if isinstance(x, (list, tuple)):
+        x = x[0] if x else 0.0
+    if isinstance(x, str):
+        return float(x.split()[0].replace(",", ""))
+    return float(x)
+
+
 def main() -> None:
     engine = BacktestEngine(config=BacktestEngineConfig(trader_id="TESTER-001"))
     engine.add_venue(
         venue=VENUE, oms_type=OmsType.NETTING, account_type=AccountType.MARGIN,
         base_currency=USD, starting_balances=[Money(INIT_CASH, USD)],
-        default_leverage=Decimal(2),
+        default_leverage=Decimal(1),
+        fee_model=NotionalFractionFeeModel(FEES),
     )
     instrument = build_instrument()
     engine.add_instrument(instrument)
@@ -163,40 +208,38 @@ def main() -> None:
     )))
     engine.run()
 
-    # ---- metrics from the positions report (closed round-trips) ----
+    # ---- metrics ----
     positions = engine.trader.generate_positions_report()
-
-    def to_float(x) -> float:
-        if isinstance(x, str):
-            return float(x.split()[0].replace(",", ""))
-        return float(x)
-
-    if positions is None or len(positions) == 0:
-        n_trades, total_ret, max_dd = 0, 0.0, 0.0
-    else:
-        pnl = positions["realized_pnl"].map(to_float).reset_index(drop=True)
-        n_trades = len(pnl)
-        total_pnl = pnl.sum()
-        total_ret = total_pnl / INIT_CASH * 100.0
-        equity = INIT_CASH + pnl.cumsum()
-        peak = equity.cummax()
-        max_dd = ((equity - peak) / peak).min() * 100.0
-        # Sharpe from per-trade returns, annualised by trades/year (stated; NOT directly
-        # comparable to vectorbt's hourly Sharpe — see root README).
-        trade_ret = pnl / INIT_CASH
-        if trade_ret.std(ddof=1) > 0:
-            span_years = (bars[-1].ts_event - bars[0].ts_event) / (365.25 * 24 * 3600 * 1e9)
-            tpy = n_trades / span_years  # trades per year over the actual data span
-            sharpe = (trade_ret.mean() / trade_ret.std(ddof=1)) * sqrt(tpy)
-        else:
-            sharpe = float("nan")
-
     result = engine.get_result()
+
+    n_trades = int(result.total_positions)
+    # total return from the account's final balance (includes commissions/fees)
+    account = engine.cache.account_for_venue(VENUE)
+    final_balance = float(account.balance_total(USD))
+    total_ret = (final_balance - INIT_CASH) / INIT_CASH * 100.0
+
+    # Sharpe: use Nautilus's own returns-based statistic (standard daily returns, annualised by sqrt(252))
+    sharpe = next((float(v) for k, v in result.stats_returns.items() if "sharpe" in k.lower()),
+                  float("nan"))
+
+    if positions is not None and len(positions) > 0:
+        pnl = positions["realized_pnl"].map(to_float).reset_index(drop=True)
+        equity = INIT_CASH + pnl.cumsum()
+        max_dd = ((equity - equity.cummax()) / equity.cummax()).min() * 100.0
+        total_commission = (
+            float(positions["commissions"].map(to_float).sum())
+            if "commissions" in positions.columns else float("nan")
+        )
+    else:
+        max_dd, total_commission = 0.0, 0.0
+
     print("--- METRICS (Nautilus) ---")
-    print(f"Number of trades    : {n_trades}   (result.total_positions={result.total_positions})")
-    print(f"Total return        : {total_ret:.2f}%   (realized PnL / init cash)")
+    print(f"Number of trades    : {n_trades}")
+    print(f"Final balance       : {final_balance:,.2f} USD (init {INIT_CASH:,})")
+    print(f"Total return        : {total_ret:.2f}%   (account balance, incl. fees)")
     print(f"Max drawdown        : {max_dd:.2f}%   (on realized equity curve)")
-    print(f"Sharpe (per-trade, ann. by trades/yr) : {sharpe:.4f}")
+    print(f"Sharpe ratio (Nautilus 252-day returns stat) : {sharpe:.4f}")
+    print(f"Total commission    : {total_commission:,.2f} USD")
     engine.dispose()
 
 

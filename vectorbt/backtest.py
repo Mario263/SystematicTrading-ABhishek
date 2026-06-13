@@ -64,8 +64,8 @@ def main() -> None:
     # Execute on the NEXT bar (shift signals by 1) so the fill never uses the same bar's
     # close that produced the signal — avoids look-ahead and matches Nautilus/MT5, which
     # both act on the bar after the cross is confirmed.
-    entries = cross_up.shift(1).fillna(False)
-    exits = cross_down.shift(1).fillna(False)
+    entries = cross_up.shift(1, fill_value=False).astype(bool)
+    exits = cross_down.shift(1, fill_value=False).astype(bool)
 
     pf = vbt.Portfolio.from_signals(
         close, entries, exits,

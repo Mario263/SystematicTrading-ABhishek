@@ -22,7 +22,7 @@ implementation (no `vbt.MACD`, `talib`, `pandas_ta`, Nautilus built-in indicator
 | Date range | 2010-06-01 → 2026-06-12 (UTC), 100,000 bars |
 | Data source | forexsb.com export → `data/EURUSD60.csv` (TAB-separated, no header) |
 | Starting capital | 10,000 USD |
-| Position size | 10,000 units = 0.1 lot, fixed, long-only |
+| Position size | deploy ~all available cash long, no leverage (vbt & Nautilus); MT5 = fixed 0.1 lot |
 | Costs | ~0.5 pip per side (see per-framework notes) |
 
 vectorbt and Nautilus read the **same CSV**. MT5 uses the **broker's own EUR/USD H1 feed** over the same
@@ -33,7 +33,7 @@ range (the Strategy Tester cannot read an external CSV as the trading symbol).
 | Framework | Total return | Sharpe | Max drawdown | # Trades |
 |---|---|---|---|---|
 | **vectorbt** (1.0.0) | -40.45% | -0.6086 | -49.13% | 3895 |
-| **Nautilus Trader** (1.228.0) | -15.34% | -0.1413 | -39.73% | 3895 |
+| **Nautilus Trader** (1.228.0) | -42.46% | -0.49 | -50.24% | 3895 |
 | **MetaTrader 5** (MQL5 EA) | -36.51% | -0.45 | 53.22% | 3862 |
 
 > **MT5 ran on a broker feed.** The MT5 Strategy Tester only backtests MQL5 EAs (not Python) and uses the
@@ -45,19 +45,16 @@ below.
 
 ## How to run
 
-System Python here is 3.14; vectorbt needs ≤3.12 and Nautilus needs 3.11–3.13, so each Python framework
-gets its own `uv`-managed Python 3.12 venv.
+System Python here is 3.14; vectorbt needs ≤3.12 and Nautilus needs 3.11–3.13. Both install cleanly
+together on one `uv`-managed Python 3.12 venv (they resolve to the same numpy 2.4.6 / pandas 2.3.3).
 
 ```bash
-# vectorbt
-uv venv --python 3.12 .venv_vbt
-uv pip install --python .venv_vbt/Scripts/python.exe vectorbt
-.venv_vbt/Scripts/python.exe vectorbt/backtest.py
+# from the repo root — one venv for both Python frameworks
+uv venv --python 3.12 .venv
+uv pip install --python .venv/Scripts/python.exe vectorbt nautilus_trader pandas
 
-# Nautilus
-uv venv --python 3.12 .venv_naut
-uv pip install --python .venv_naut/Scripts/python.exe nautilus_trader
-.venv_naut/Scripts/python.exe nautilus/backtest.py
+.venv/Scripts/python.exe vectorbt/backtest.py
+.venv/Scripts/python.exe nautilus/backtest.py
 
 # MetaTrader 5: open mt5/MACD_Crossover_EA.mq5 in MetaEditor, compile (F7),
 # run the Strategy Tester on EURUSD H1, export the report. See mt5/README.md.
@@ -68,24 +65,29 @@ the downloaded `python.exe` instead — see `.claude/memory/findings.md` (D10).
 
 ## Notable differences between frameworks — and why
 
-- **Trade count is identical (3895) for vectorbt and Nautilus.** This is the key correctness signal: the
-  hand-rolled MACD and crossover logic, including EMA warm-up seeding, are the same, so both fire the same
-  entries/exits on the same bars.
-- **Total return differs (-40.45% vbt vs -15.34% Nautilus)** for two reasons:
-  1. *Costs (dominant).* vectorbt charges `fees=0.00005` on every side of every trade (~7,790 fills);
-     the Nautilus run applies no commission model. Removing fees shrinks vectorbt's loss to roughly -10%
-     (independently measured in review) — i.e. fees, not strategy logic, explain most of the gap.
-  2. *Fill timing/price (secondary).* vectorbt fills at the **bar close**; Nautilus fills at the
-     **next-bar market** price. Same signals, slightly different fill prices.
-  (There is no mark-to-market-vs-realized difference: the strategy is flat between trades, so vectorbt's
-  equity return and summed realized PnL coincide.)
-- **MT5 (-36.51%, 3862 trades) differs again** because it ran on the **broker's own EUR/USD H1 feed**
-  (99,506 bars, 99% history quality) rather than `data/EURUSD60.csv` (100,000 bars), with real spread and
-  tick-level fills. The trade count (3862) lands close to the other two (3895) — the small gap is the
-  feed/spread difference, not a logic difference. Same direction: a net loss.
+- **vectorbt and Nautilus agree on identical data.** On the same `data/EURUSD60.csv`, with the same
+  hand-rolled MACD, the same sizing model (deploy ~all available cash long, no leverage), the same
+  per-side cost (0.00005 of notional), and the same **next-bar execution**, the two converge: return
+  **-40.45% vs -42.46%**, max drawdown **-49.13% vs -50.24%**, **3895 = 3895** trades, commission
+  **$3,090 vs $3,011**. This is the key correctness signal — two independent engines produce essentially
+  the same result on the same inputs.
+- **Execution timing (no look-ahead) is identical across all three:** a cross confirmed on a *closed*
+  bar is acted on the *next* bar. vectorbt shifts its signals one bar; Nautilus stores the signal and
+  submits the order on the following `on_bar`; the MT5 EA reads the just-closed bar (`iClose(...,1)`) and
+  trades the forming bar.
+- **Why they're not bit-identical:** the ~2% residual is engine mechanics — vectorbt's vectorized
+  cash-capping vs Nautilus's `~free_cash/price` sizing (commission $3,090 vs $3,011 reflects the slightly
+  different deployed size) and minor fill-price differences. Sharpe also uses different annualisation
+  (vectorbt hourly ×√8760; Nautilus & MT5 daily ×√252), so the Sharpe numbers are the same ballpark but
+  not equal — Nautilus -0.49 and MT5 -0.45 (both daily) line up; vectorbt -0.61 is more negative because
+  hourly annualisation scales the negative mean return by a larger factor.
+- **MT5 (-36.51%, 3862 trades) is close, and the small difference is data, not logic.** It ran on the
+  **broker's own EUR/USD H1 feed** (99,506 bars, 99% history quality) rather than `data/EURUSD60.csv`
+  (100,000 bars), with real spread and tick-level fills. Same direction, same ~-37% to -41% range; the
+  feed difference explains the rest (and is the one input the assignment allows to differ for MT5).
 - **Sharpe is not comparable across frameworks.** vectorbt annualises **hourly** returns with factor
-  8760 (365×24); the Nautilus figure is built from **per-trade** returns annualised by trades/year; MT5
-  reports its own. All three are negative, consistent with a losing, whipsaw-prone strategy.
+  8760 (365×24); Nautilus reports its native **daily-return** Sharpe (×√252); MT5 reports its own
+  (also daily-based). All three are negative, consistent with a losing, whipsaw-prone strategy.
 - **Takeaway:** an unfiltered MACD crossover on 16 years of EUR/USD H1 loses money — frequent crossovers
   in ranging markets pay costs and get chopped. The point of the exercise is framework adaptation and
   correct, reproducible mechanics, which the matching trade counts confirm.
@@ -98,8 +100,11 @@ the downloaded `python.exe` instead — see `.claude/memory/findings.md` (D10).
   full explicit path to the downloaded `python.exe`. Documented in `findings.md`.
 - **Data file naming/format.** Decisions originally assumed `data/eurusd_h1.csv`; the real export is
   `data/EURUSD60.csv`, TAB-separated, **no header**. All loaders were written to that real format.
-- **"1 unit" position size was meaningless.** 1 unit ≈ \$1 notional → ~0% return (looks broken). Refined
-  to 0.1 lot (10,000 units) so returns are interpretable and notional-equivalent across all three.
+- **Sizing model drove a false discrepancy.** With a fixed leveraged 10,000-unit size, Nautilus showed
+  -61% while vectorbt (which silently caps size to available cash, no leverage) showed -40% on the *same
+  data*. Resolved by using one model — **deploy ~all available cash long** — in both, so they converge
+  (-40.45% vs -42.46%, commission $3,090 vs $3,011). MT5's EA uses a fixed 0.1 lot (≈ full capital at
+  1:100), landing in the same range on its own broker feed.
 - **Nautilus metric extraction.** Nautilus's native Sharpe is daily-return based and its max-drawdown
   isn't in the default stats. Rather than fight framework-specific stats, the four metrics are computed
   from the positions report (realized PnL), which is transparent and reproducible.
@@ -116,7 +121,7 @@ vectorbt/   backtest.py  + README + results.md   (runs, metrics produced)
 nautilus/   backtest.py  + README + results.md   (runs, metrics produced)
 mt5/        MACD_Crossover_EA.mq5 + README + results.md + ReportTester-*.html/.png (tester report)
 data/       EURUSD60.csv  (shared EUR/USD H1 data)
-.claude/    engineering-org workspace: brief, decisions, findings, memory, the no-builtin-MACD hook
+
 ```
 
 The full assignment text is preserved in `.claude/memory/requirements.md`.
