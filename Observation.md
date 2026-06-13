@@ -1,6 +1,6 @@
 ## My Observations
 
-According to me and as can be seen in the "price analysis graph" ![Price Analysis Graph](C:\Users\abhis\OneDrive\Desktop\ABhishek-implimentation\price-analysis.png), from the time range 2010 - 2026, there are few key points:
+According to me and as can be seen in the "price analysis graph" ![Price Analysis Graph](./price-analysis.png), from the time range 2010 - 2026, there are few key points:
 
 <ol>
 <li> From around 2010 to 2015 EURUSD generally trends down, it starts at 1.2-1.5 and falls towards ~1.05-1.10</li>
