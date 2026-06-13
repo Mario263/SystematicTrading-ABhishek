@@ -8,6 +8,8 @@ wheels/
 
 # Virtual environments
 .venv
+.venv_vbt
+.venv_naut
 .claude/
 .tmp_naut/
 .tmp_vbt/
