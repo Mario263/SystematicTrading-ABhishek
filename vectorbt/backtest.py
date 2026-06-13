@@ -78,8 +78,8 @@ def main() -> None:
     print(f"Entry signals       : {int(entries.sum()):,}")
     print("--- METRICS ---")
     print(f"Total return        : {pf.total_return() * 100:.2f}%")
-    print(f"Sharpe ratio (ann.) : {pf.sharpe_ratio():.4f}   (freq=1h, ann_factor=8760)")
-    print(f"Max drawdown        : {pf.max_drawdown() * 100:.2f}%")
+    print(f"Sharpe ratio (ann.) : {pf.sharpe_ratio():.4f}   (freq=1h, ann_factor=8760)") #type: ignore
+    print(f"Max drawdown        : {pf.max_drawdown() * 100:.2f}%")#type: ignore
     print(f"Number of trades    : {pf.trades.count()}")
 
 

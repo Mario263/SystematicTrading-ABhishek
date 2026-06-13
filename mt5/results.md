@@ -1,23 +1,50 @@
-# MetaTrader 5 — results
+# MetaTrader 5 — Results
 
-Source: `ReportTester-5051731132.html` (exported Strategy Tester report) + screenshots in this folder.
+**Source:** `ReportTester-5051731132.html` (MetaTrader 5 Strategy Tester Report)
 
-- Instrument / timeframe: EUR/USD H1
-- Date range: 2010.06.01 - 2026.06.12 (broker feed; 99,506 bars, history quality 99%)
-- Account: initial deposit 10,000 USD, leverage 1:100; 0.10 lot, long-only, flat on exit
-- EA: `MACD_Crossover_EA.mq5` (hand-rolled EMA/MACD/signal, no iMACD)
+* **Instrument / Timeframe:** EURUSD H1
+* **Test Period:** 2010.06.01 – 2026.06.12
+* **History Quality:** 99%
+* **Initial Deposit:** 10,000 USD
+* **Leverage:** 1:100
+* **Expert Advisor:** `MACD_Crossover_EA`
+* **Parameters:**
 
-| Metric | Value |
-|---|---|
-| Total return | **-36.51%** (net profit -3,650.96 on 10,000) |
-| Sharpe ratio | **-0.45** |
-| Max drawdown | **53.22%** (balance drawdown maximal 6,038.40; equity DD 53.63%) |
-| Number of trades | **3862** (all long; 1353 won = 35.03%) |
+  * FastPeriod = 12
+  * SlowPeriod = 26
+  * SignalPeriod = 9
+  * LotSize = 0.10
 
-Notes:
-- MACD/EMA/signal hand-rolled in the EA via `EmaStep()`; `iClose` is used only to read the closed-bar
-  price, not as an indicator. No `iMACD`/`iMA`.
-- MT5 ran on the **broker's own EUR/USD H1 feed** (99,506 bars), not `data/EURUSD60.csv` (100,000 bars),
-  because the Strategy Tester cannot use an external CSV as the traded symbol. Hence trade count 3862 vs
-  3895 in vectorbt/Nautilus, and a different return — expected (different feed, real spread, tick fills).
-- Result direction agrees with the other two frameworks: the unfiltered MACD crossover loses money.
+## Performance Summary
+
+| Metric                   | Value                     |
+| ------------------------ | ------------------------- |
+| Total Net Profit         | **-3,650.96 USD**         |
+| Total Return             | **-36.51%**               |
+| Gross Profit             | **57,066.33 USD**         |
+| Gross Loss               | **-60,717.29 USD**        |
+| Profit Factor            | **0.94**                  |
+| Sharpe Ratio             | **-0.45**                 |
+| Recovery Factor          | **-0.60**                 |
+| Expected Payoff          | **-0.95 USD/trade**       |
+| Total Trades             | **3,862**                 |
+| Winning Trades           | **1,353 (35.03%)**        |
+| Losing Trades            | **2,509 (64.97%)**        |
+| Largest Winning Trade    | **343.43 USD**            |
+| Largest Losing Trade     | **-178.40 USD**           |
+| Average Winning Trade    | **42.18 USD**             |
+| Average Losing Trade     | **-24.20 USD**            |
+| Maximum Balance Drawdown | **6,038.40 USD (53.22%)** |
+| Maximum Equity Drawdown  | **6,130.87 USD (53.63%)** |
+
+## Observations
+
+* The strategy generated **57,066.33 USD** in gross profit but incurred **60,717.29 USD** in gross losses, resulting in a net loss of **3,650.96 USD**.
+* Although the average winning trade (**42.18 USD**) was larger than the average losing trade (**24.20 USD**), the low win rate (**35.03%**) prevented the strategy from achieving profitability.
+* The strategy experienced a maximum equity drawdown of **53.63%**, indicating substantial risk exposure.
+* The negative Sharpe Ratio (**-0.45**) and Recovery Factor (**-0.60**) indicate poor risk-adjusted performance.
+* Results align with the findings from VectorBT and Nautilus Trader backtests: the baseline MACD crossover strategy is not profitable on EURUSD over the tested period without additional filters, position management, or risk controls.
+
+## Conclusion
+
+The MACD crossover strategy produced a negative return of **36.51%** over the testing period despite generating more than **57,000 USD** in gross profits. A low win rate combined with prolonged drawdowns resulted in overall negative performance. The backtest demonstrates that a simple MACD crossover approach is insufficient for long-term profitability on EURUSD and would require additional signal filtering, trend confirmation, and risk-management mechanisms before deployment in live trading.

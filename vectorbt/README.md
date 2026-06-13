@@ -5,13 +5,13 @@ signal; flat on crossing below. Vectorized backtest via `Portfolio.from_signals`
 
 ## How to run
 
-The system Python is 3.14 (vectorbt needs <=3.12). Build a Python 3.12 venv with `uv`:
+The system Python is 3.14 (vectorbt needs <=3.12). Use the project's unified 3.12 venv built with `uv`:
 
 ```bash
 # from the repo root
-uv venv --python 3.12 .venv_vbt          # if this errors, use the full python.exe path (see findings.md / D10)
-uv pip install --python .venv_vbt/Scripts/python.exe vectorbt
-.venv_vbt/Scripts/python.exe vectorbt/backtest.py
+uv venv --python 3.12 .venv              # if this errors, use the full python.exe path (see findings.md / D10)
+uv pip install --python .venv/Scripts/python.exe vectorbt pandas numpy
+.venv/Scripts/python.exe vectorbt/backtest.py
 ```
 
 First run JIT-compiles numba (~30s). Reads `../data/EURUSD60.csv` (TAB-separated, no header).

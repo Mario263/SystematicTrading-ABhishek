@@ -8,13 +8,13 @@ so the two produce the same crossovers (same trade count).
 
 ## How to run
 
-Nautilus needs Python 3.11–3.13 (system Python here is 3.14). Build a 3.12 venv with `uv`:
+Nautilus needs Python 3.11–3.13 (system Python here is 3.14). Use the project's unified 3.12 venv built with `uv`:
 
 ```bash
 # from the repo root
-uv venv --python 3.12 .venv_naut          # if this errors, use the full python.exe path (see findings.md / D10)
-uv pip install --python .venv_naut/Scripts/python.exe nautilus_trader
-.venv_naut/Scripts/python.exe nautilus/backtest.py
+uv venv --python 3.12 .venv               # if this errors, use the full python.exe path (see findings.md / D10)
+uv pip install --python .venv/Scripts/python.exe nautilus_trader pandas
+.venv/Scripts/python.exe nautilus/backtest.py
 ```
 
 Reads `../data/EURUSD60.csv` (TAB-separated, no header), loads it as H1 bars via `BarDataWrangler`,

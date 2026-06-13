@@ -15,20 +15,20 @@ from pathlib import Path
 
 import pandas as pd
 
-from nautilus_trader.backtest.engine import BacktestEngine, BacktestEngineConfig
-from nautilus_trader.config import StrategyConfig
-from nautilus_trader.model.currencies import EUR, USD
-from nautilus_trader.model.data import Bar, BarSpecification, BarType
-from nautilus_trader.model.enums import (
+from nautilus_trader.backtest.engine import BacktestEngine, BacktestEngineConfig #type: ignore
+from nautilus_trader.config import StrategyConfig#type: ignore
+from nautilus_trader.model.currencies import EUR, USD #type: ignore
+from nautilus_trader.model.data import Bar, BarSpecification, BarType#type: ignore
+from nautilus_trader.model.enums import (#type: ignore
     AccountType, AggregationSource, BarAggregation, OmsType, OrderSide, PriceType,
 )
-from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
-from nautilus_trader.model.instruments import CurrencyPair
-from nautilus_trader.model.objects import Money, Price, Quantity
-from nautilus_trader.persistence.wranglers import BarDataWrangler
-from nautilus_trader.trading.strategy import Strategy
+from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue#type: ignore
+from nautilus_trader.model.instruments import CurrencyPair#type: ignore
+from nautilus_trader.model.objects import Money, Price, Quantity#type: ignore
+from nautilus_trader.persistence.wranglers import BarDataWrangler#type: ignore
+from nautilus_trader.trading.strategy import Strategy#type: ignore
 
-# ---- shared parameters (see .claude/memory/decisions.md) ----
+# ---- shared parameters 
 DATA = Path(__file__).resolve().parents[1] / "data" / "EURUSD60.csv"
 FAST, SLOW, SIGNAL = 12, 26, 9
 INIT_CASH = 10_000
@@ -43,7 +43,7 @@ def ema_step(price: float, prev: float, period: int) -> float:
     return price * k + prev * (1.0 - k)
 
 
-class MACDConfig(StrategyConfig, frozen=True):
+class MACDConfig(StrategyConfig, frozen=True): #type: ignore
     instrument_id: str
     bar_type: str
     trade_size: int = TRADE_SIZE
